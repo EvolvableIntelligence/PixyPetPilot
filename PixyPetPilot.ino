@@ -1,26 +1,28 @@
-//==========================================================================
+//****************************************************************************
 //
-//  Pixy Pet Robot
+// PixyPetPilot
 //
-//   Adafruit invests time and resources providing this open source code, 
-//  please support Adafruit and open-source hardware by purchasing 
-//  products from Adafruit!
+// Written by: Jeff Bassett
 //
-// Written by: Bill Earl for Adafruit Industries
+// An experiment with the PixyPet robot.  This code will ultimately allow you
+// to drive your PixyPet using various colored objects.
 //
-//==========================================================================
+// Based on the Pixy Pet Robot code written by Bill Earl for Adafruit
+// Industries.  Portions of that code are derived from the Pixy CMUcam5
+// pantilt example code.
+//
+//****************************************************************************
+//
 // begin license header
 //
-// All Pixy Pet source code is provided under the terms of the
-// GNU General Public License v2 (http://www.gnu.org/licenses/gpl-2.0.html).
+// All Pixy Pet source code (including this) is provided under the terms of
+// the GNU General Public License v2
+// (http://www.gnu.org/licenses/gpl-2.0.html).
 //
 // end license header
 //
-//==========================================================================
-//
-// Portions of this code are derived from the Pixy CMUcam5 pantilt example code. 
-//
-//==========================================================================
+//****************************************************************************
+
 #include <SPI.h>  
 #include <Pixy.h>
 
@@ -94,6 +96,8 @@ ServoLoop tiltLoop(150, 200); // Servo loop for tilt
 
 ZumoMotors motors;  // declare the motors on the zumo
 
+uint16_t targetSignature;
+
 //---------------------------------------
 // Setup - runs once at startup
 //---------------------------------------
@@ -103,6 +107,8 @@ void setup()
 	Serial.print("Starting...\n");
 
 	pixy.init();
+
+  targetSignature = EncodeSignature(1);
 }
 
 uint32_t lastBlockTime = 0;
@@ -112,13 +118,14 @@ uint32_t lastBlockTime = 0;
 //---------------------------------------
 void loop()
 { 
-	uint16_t blocks;
-	blocks = pixy.getBlocks();
+	uint16_t numBlocks;
+	numBlocks = pixy.getBlocks();
+	int targetBlock = IdentifyTarget(numBlocks, targetSignature);
 
 	// If we have blocks in sight, track and follow them
-	if (blocks)
+	if (targetBlock >= 0)
 	{
-		int trackedBlock = TrackBlock(blocks);
+		int trackedBlock = TrackBlock(targetBlock);
 		FollowBlock(trackedBlock);
 		lastBlockTime = millis();
 	}  
@@ -130,46 +137,100 @@ void loop()
 	}
 }
 
-int oldX, oldY, oldSignature;
 
-//---------------------------------------
-// Track blocks via the Pixy pan/tilt mech
-// (based in part on Pixy CMUcam5 pantilt example)
-//---------------------------------------
-int TrackBlock(int blockCount)
+//****************************************************************************
+//
+// EncodeSignature
+//
+// Encodes a decimal pixy block signature (e.g. int sig = 1321) into an octal
+// number representing the appropriate CC signature for the pattern "1321".
+//
+//****************************************************************************
+uint16_t EncodeSignature(uint32_t decimal_sig)
 {
-	int trackedBlock = 0;
-	long maxSize = 0;
+    uint16_t octal_sig = 0;
+    int i, digit;
 
-	Serial.print("blocks =");
-	Serial.println(blockCount);
+    bool done = false;
+    for (i = 0; i < 5; i++) // Loop from least to most significant digit
+                            // i.e. right to left
+    {
+        digit = decimal_sig - (decimal_sig / 10) * 10;
+        decimal_sig = decimal_sig / 10;
 
-	for (int i = 0; i < blockCount; i++)
-	{
-		if ((oldSignature == 0) || (pixy.blocks[i].signature == oldSignature))
-		{
-			long newSize = pixy.blocks[i].height * pixy.blocks[i].width;
-			if (newSize > maxSize)
-			{
-				trackedBlock = i;
-				maxSize = newSize;
-			}
-		}
-	}
+        if (digit == 0)
+            break;
 
-	int32_t panError = X_CENTER - pixy.blocks[trackedBlock].x;
-	int32_t tiltError = pixy.blocks[trackedBlock].y - Y_CENTER;
+        octal_sig = octal_sig + (digit << (i * 3));
+    }
 
-	panLoop.update(panError);
-	tiltLoop.update(tiltError);
-
-	pixy.setServos(panLoop.m_pos, tiltLoop.m_pos);
-
-	oldX = pixy.blocks[trackedBlock].x;
-	oldY = pixy.blocks[trackedBlock].y;
-	oldSignature = pixy.blocks[trackedBlock].signature;
-	return trackedBlock;
+    return octal_sig;
 }
+
+
+//****************************************************************************
+//
+// IdentifyTarget
+//
+// Given a target signature, this function identifies the best (i.e. biggest)
+// corresponding block from the Pixy Camera.
+//
+//****************************************************************************
+int IdentifyTarget(int numBlocks, uint16_t targetSignature)
+{
+    long bestSizeFound = 0;
+    int  targetBlock = -1;
+
+    Serial.print("numBlocks =");
+    Serial.println(numBlocks);
+
+    // Loop through all the blocks
+    for (int i = 0; i < numBlocks; i++)
+    {
+        if (pixy.blocks[i].signature == targetSignature)
+        {
+            long blockSize = pixy.blocks[i].height * pixy.blocks[i].width;
+            if (blockSize > bestSizeFound)
+            {
+                targetBlock = i;
+                bestSizeFound = blockSize;
+            }
+        }
+    }
+
+    return targetBlock;
+}
+
+
+//****************************************************************************
+//
+// TrackBlock
+//
+// Track a block via the Pixy pan/tilt mechanism.  Based in part on Pixy
+// CMUcam5 pantilt example.
+//
+//****************************************************************************
+int TrackBlock(int targetBlock)
+{
+    static int oldX, oldY, oldSignature;  // static retain state between calls
+
+    int trackedBlock = targetBlock;
+
+    int32_t panError = X_CENTER - pixy.blocks[trackedBlock].x;
+    int32_t tiltError = pixy.blocks[trackedBlock].y - Y_CENTER;
+
+    panLoop.update(panError);
+    tiltLoop.update(tiltError);
+
+    pixy.setServos(panLoop.m_pos, tiltLoop.m_pos);
+
+    oldX = pixy.blocks[trackedBlock].x;
+    oldY = pixy.blocks[trackedBlock].y;
+    oldSignature = pixy.blocks[trackedBlock].signature;
+    return trackedBlock;
+}
+
+
 
 //---------------------------------------
 // Follow blocks via the Zumo robot drive
