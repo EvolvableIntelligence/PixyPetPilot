@@ -108,7 +108,8 @@ void setup()
 
 	pixy.init();
 
-  targetSignature = EncodeSignature(1);
+  //targetSignature = EncodeSignature(4);
+  targetSignature = EncodeSignature(123);
 }
 
 uint32_t lastBlockTime = 0;
@@ -281,7 +282,7 @@ void ScanForBlocks()
 		panLoop.m_pos += scanIncrement;
 		if ((panLoop.m_pos >= RCS_MAX_POS)||(panLoop.m_pos <= RCS_MIN_POS))
 		{
-			tiltLoop.m_pos = random(RCS_MAX_POS * 0.6, RCS_MAX_POS);
+			tiltLoop.m_pos = random(RCS_MAX_POS * 0.5, RCS_MAX_POS * 0.9);
 			scanIncrement = -scanIncrement;
 			if (scanIncrement < 0)
 			{
@@ -293,7 +294,7 @@ void ScanForBlocks()
 				motors.setLeftSpeed(+180);
 				motors.setRightSpeed(-180);
 			}
-			delay(random(250, 500));
+      delay(random(250, 500));
 		}
 
 		pixy.setServos(panLoop.m_pos, tiltLoop.m_pos);
